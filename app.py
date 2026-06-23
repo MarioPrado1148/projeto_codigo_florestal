@@ -82,8 +82,24 @@ def carregar_modelo_embedding():
     from sentence_transformers import SentenceTransformer
     import torch
 
+    # Modelo mais leve que BAAI/bge-m3 (568M parâmetros) -- necessário porque
+    # o Streamlit Community Cloud gratuito tem RAM limitada (~1GB), e o
+    # bge-m3 causava o processo ser encerrado silenciosamente por excesso de
+    # memória (sem traceback Python, só a tela genérica "Oh no" do Streamlit).
+    # paraphrase-multilingual-MiniLM-L12-v2 (118M parâmetros, ~5x menor) é
+    # suficiente para um corpus de 91 artigos em português.
+    #
+    # Ressalva conhecida: este mesmo modelo já apresentou falha de
+    # recuperação em outro projeto (capstone IRPJ), motivando a troca para
+    # bge-m3 naquele caso -- mas o contexto era diferente (pares
+    # pergunta+resposta longos, com seções "Notas:" que diluíam o embedding).
+    # Aqui o corpus é mais uniforme (artigos de lei). Se a qualidade da busca
+    # piorar perceptivelmente, considerar voltar ao bge-m3 e usar uma conta
+    # paga do Streamlit Cloud (ou outro serviço de deploy com mais RAM).
     dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
-    return SentenceTransformer("BAAI/bge-m3", device=dispositivo)
+    return SentenceTransformer(
+        "paraphrase-multilingual-MiniLM-L12-v2", device=dispositivo
+    )
 
 
 @st.cache_resource(show_spinner="Baixando e processando o Código Florestal...")
