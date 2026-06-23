@@ -90,7 +90,11 @@ def montar_indice():
 
     modelo_embedding = carregar_modelo_embedding()
 
-    cliente = chromadb.Client()  # em memória -- recriado a cada sessão nova
+    # anonymized_telemetry=False evita a cadeia de import opentelemetry/protobuf
+    # que causa conflito de versão em alguns ambientes de deploy (Streamlit Cloud).
+    cliente = chromadb.Client(
+        chromadb.config.Settings(anonymized_telemetry=False)
+    )
     collection = cliente.get_or_create_collection(
         name="codigo_florestal",
         metadata={"hnsw:space": "cosine"},
