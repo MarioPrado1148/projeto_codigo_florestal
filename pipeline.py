@@ -173,8 +173,73 @@ def construir_chunks(artigos: dict[str, str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# ChromaDB: indexação e leitura
+# Índice vetorial em NumPy puro (substitui o ChromaDB)
+#
+# O ChromaDB traz uma cadeia de dependências (opentelemetry -> protobuf) que
+# causou falhas de import recorrentes no ambiente de deploy do Streamlit
+# Community Cloud (Python 3.14 -- versão muito recente, sem wheels compilados
+# estáveis para essa cadeia). Como o corpus é pequeno (91 artigos), um banco
+# vetorial completo é desnecessário: comparar a pergunta contra 91 vetores
+# via produto escalar (embeddings normalizados = similaridade de cosseno)
+# é instantâneo e elimina essa dependência problemática por completo.
 # ---------------------------------------------------------------------------
+
+import numpy as np
+
+
+class IndiceVetorial:
+    """Substitui a 'collection' do ChromaDB. Mesma interface mínima usada
+    pelo retriever_expandido: .query(...) e .get(where=...)."""
+
+    def __init__(self):
+        self.ids: list[str] = []
+        self.embeddings: np.ndarray | None = None
+        self.documentos: list[str] = []
+        self.metadados: list[dict] = []
+        self._indice_por_numero: dict[str, int] = {}
+
+    def add(self, ids, embeddings, documents, metadatas):
+        self.ids = list(ids)
+        self.embeddings = np.array(embeddings, dtype=np.float32)
+        self.documentos = list(documents)
+        self.metadados = list(metadatas)
+        self._indice_por_numero = {
+            m["numero"]: i for i, m in enumerate(self.metadados)
+        }
+
+    def query(self, query_embeddings, n_results, include=None):
+        """Busca por similaridade de cosseno (produto escalar, já que os
+        embeddings são normalizados). Retorna no mesmo formato que o
+        ChromaDB usa: listas aninhadas (um nível por query)."""
+        consulta = np.array(query_embeddings, dtype=np.float32)
+        similaridades = consulta @ self.embeddings.T  # shape: (n_queries, n_docs)
+
+        indices_top = np.argsort(-similaridades, axis=1)[:, :n_results]
+
+        documentos_resultado = [[self.documentos[i] for i in linha] for linha in indices_top]
+        metadados_resultado = [[self.metadados[i] for i in linha] for linha in indices_top]
+
+        return {"documents": documentos_resultado, "metadatas": metadados_resultado}
+
+    def get(self, where=None, include=None):
+        """Busca direta por metadado (usado na expansão por remissão)."""
+        numeros_pedidos = where["numero"]["$in"] if where else []
+        documentos_resultado, metadados_resultado = [], []
+        for n in numeros_pedidos:
+            idx = self._indice_por_numero.get(n)
+            if idx is not None:
+                documentos_resultado.append(self.documentos[idx])
+                metadados_resultado.append(self.metadados[idx])
+        return {"documents": documentos_resultado, "metadatas": metadados_resultado}
+
+    def count(self) -> int:
+        return len(self.ids)
+
+
+def criar_indice() -> IndiceVetorial:
+    """Substitui chromadb.Client().get_or_create_collection(...)."""
+    return IndiceVetorial()
+
 
 def desserializar_metadado(metadado: dict) -> dict:
     resultado = dict(metadado)
@@ -184,8 +249,8 @@ def desserializar_metadado(metadado: dict) -> dict:
     return resultado
 
 
-def indexar_chunks(collection, chunks: list[dict], modelo_embedding) -> None:
-    """Gera embeddings e indexa os chunks no ChromaDB, em batch."""
+def indexar_chunks(collection: IndiceVetorial, chunks: list[dict], modelo_embedding) -> None:
+    """Gera embeddings e indexa os chunks no índice vetorial, em batch."""
     textos = [c["texto"] for c in chunks]
     embeddings = modelo_embedding.encode(
         textos, batch_size=32, normalize_embeddings=True
@@ -210,7 +275,7 @@ def indexar_chunks(collection, chunks: list[dict], modelo_embedding) -> None:
     )
 
 
-def buscar_por_numero_artigo(collection, numeros: list[str]) -> list[dict]:
+def buscar_por_numero_artigo(collection: IndiceVetorial, numeros: list[str]) -> list[dict]:
     if not numeros:
         return []
     resultado = collection.get(
@@ -225,7 +290,7 @@ def buscar_por_numero_artigo(collection, numeros: list[str]) -> list[dict]:
 
 def retriever_expandido(
     pergunta: str,
-    collection,
+    collection: IndiceVetorial,
     modelo_embedding,
     k: int = 5,
     profundidade_expansao: int = 1,

@@ -9,16 +9,17 @@ Para rodar:
     streamlit run app.py
 
 Pré-requisitos:
-    pip install streamlit chromadb sentence-transformers langchain langchain-core \
+    pip install streamlit numpy sentence-transformers langchain langchain-core \
         langchain-anthropic langchain-ollama beautifulsoup4 requests
+
+Nota: a busca por similaridade usa um índice vetorial em NumPy puro (ver
+pipeline.IndiceVetorial), não ChromaDB -- evita uma cadeia de dependências
+(opentelemetry/protobuf) que causou falhas de import recorrentes no Streamlit
+Community Cloud. Com apenas 91 artigos, um banco vetorial completo seria
+desnecessário de qualquer forma.
 """
 
-import os
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
-os.environ["CHROMA_TELEMETRY_ENABLED"] = "False"
-
 import streamlit as st
-import chromadb
 
 import pipeline
 
@@ -88,22 +89,14 @@ def carregar_modelo_embedding():
 @st.cache_resource(show_spinner="Baixando e processando o Código Florestal...")
 def montar_indice():
     """Pipeline completo de ingestão: download -> parsing -> remissões ->
-    embeddings -> indexação no Chroma. Roda uma única vez (cache_resource)."""
+    embeddings -> indexação no índice vetorial. Roda uma única vez
+    (cache_resource)."""
     artigos = pipeline.parsear_lei_completa()
     chunks = pipeline.construir_chunks(artigos)
 
     modelo_embedding = carregar_modelo_embedding()
 
-    # anonymized_telemetry=False evita a cadeia de import opentelemetry/protobuf
-    # que causa conflito de versão em alguns ambientes de deploy (Streamlit Cloud).
-    cliente = chromadb.Client(
-        chromadb.config.Settings(anonymized_telemetry=False)
-    )
-    collection = cliente.get_or_create_collection(
-        name="codigo_florestal",
-        metadata={"hnsw:space": "cosine"},
-    )
-
+    collection = pipeline.criar_indice()
     pipeline.indexar_chunks(collection, chunks, modelo_embedding)
 
     return collection, modelo_embedding, len(chunks)
