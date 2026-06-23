@@ -13,6 +13,10 @@ Pré-requisitos:
         langchain-anthropic langchain-ollama beautifulsoup4 requests
 """
 
+import os
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["CHROMA_TELEMETRY_ENABLED"] = "False"
+
 import streamlit as st
 import chromadb
 
