@@ -1,16 +1,17 @@
 """
-app.py — Entenda o Código Florestal (Streamlit)
+app.py — Debulhe o Código Florestal (Streamlit)
 
 Interface de pergunta e resposta sobre a Lei 12.651/2012, com tradução para
-linguagem simples. Suporta dois backends de LLM, selecionáveis na barra
-lateral: Claude (Anthropic) e Ollama (modelo aberto, executado localmente).
+linguagem simples. O motor de IA por trás não é exposto na interface
+(prática comum em produtos -- o usuário não precisa saber qual modelo
+responde, só que a resposta é confiável e cita a base legal).
 
 Para rodar:
     streamlit run app.py
 
 Pré-requisitos:
     pip install streamlit numpy sentence-transformers langchain langchain-core \
-        langchain-anthropic langchain-ollama beautifulsoup4 requests
+        langchain-anthropic beautifulsoup4 requests
 
 Nota: a busca por similaridade usa um índice vetorial em NumPy puro (ver
 pipeline.IndiceVetorial), não ChromaDB -- evita uma cadeia de dependências
@@ -24,10 +25,11 @@ import streamlit as st
 import pipeline
 
 st.set_page_config(
-    page_title="Entenda o Código Florestal",
+    page_title="Debulhe o Código Florestal",
     page_icon="🌾",
     layout="centered",
 )
+
 
 # ---------------------------------------------------------------------------
 # Identidade visual (mesma paleta do protótipo HTML e do pitch)
@@ -48,6 +50,7 @@ st.markdown(
     h1, h2, h3 {{
         color: {MATA_ESCURA};
         font-family: Georgia, serif;
+        font-weight: 800;
     }}
     .base-legal {{
         border: 1.5px dashed {MATA};
@@ -118,28 +121,27 @@ def montar_indice():
     return collection, modelo_embedding, len(chunks)
 
 
-def obter_llm(backend: str, modelo_ollama: str = None):
-    """Retorna uma instância de LLM (LangChain) conforme o backend escolhido.
+def obter_llm():
+    """Retorna a instância de LLM usada pela aplicação.
 
-    A chave da Anthropic é lida de st.secrets (Streamlit Community Cloud) se
-    disponível, com fallback para a variável de ambiente ANTHROPIC_API_KEY
-    (uso local). Isso permite o mesmo código funcionar nos dois ambientes
-    sem alteração.
+    O motor não é exposto na interface (o usuário só vê 'consultando...',
+    sem nome de provedor) -- decisão de produto, não de ocultar informação:
+    o código-fonte deste arquivo é público e mostra exatamente qual motor
+    está em uso, para quem quiser conferir.
+
+    A chave é lida de st.secrets (Streamlit Community Cloud) com fallback
+    para variável de ambiente (uso local).
     """
-    if backend == "Claude (Anthropic)":
-        import os
-        from langchain_anthropic import ChatAnthropic
+    import os
+    from langchain_anthropic import ChatAnthropic
 
-        chave = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY"))
-        if not chave:
-            raise ValueError(
-                "ANTHROPIC_API_KEY não encontrada. Configure como Secret no "
-                "Streamlit Cloud, ou como variável de ambiente localmente."
-            )
-        return ChatAnthropic(model="claude-sonnet-4-6", temperature=0.1, api_key=chave)
-    else:
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=modelo_ollama or "llama3.1", temperature=0.1)
+    chave = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY"))
+    if not chave:
+        raise ValueError(
+            "Chave de API não encontrada. Configure ANTHROPIC_API_KEY como "
+            "Secret no Streamlit Cloud, ou como variável de ambiente localmente."
+        )
+    return ChatAnthropic(model="claude-sonnet-4-6", temperature=0.1, api_key=chave)
 
 
 def gerar_resposta(pergunta: str, collection, modelo_embedding, llm) -> tuple[str, list[dict]]:
@@ -161,49 +163,10 @@ def gerar_resposta(pergunta: str, collection, modelo_embedding, llm) -> tuple[st
 
 
 # ---------------------------------------------------------------------------
-# Barra lateral: seleção de backend
-# ---------------------------------------------------------------------------
-
-with st.sidebar:
-    st.markdown("### Configuração do modelo")
-    backend = st.radio(
-        "Motor de tradução",
-        ["Claude (Anthropic)", "Ollama (ferramenta aberta)"],
-        index=1,
-        help="A versão entregue ao haCARthon usa Ollama (ferramenta aberta, "
-             "exigida pelo edital). A opção Claude fica disponível para "
-             "comparação e foi usada durante o desenvolvimento.",
-    )
-
-    modelo_ollama = None
-    if backend == "Ollama (ferramenta aberta)":
-        modelo_ollama = st.text_input(
-            "Nome do modelo Ollama",
-            value="llama3.1",
-            help="Use o nome exato que aparece em 'ollama list' na sua máquina.",
-        )
-        st.caption(
-            "Requer o Ollama instalado e rodando localmente "
-            "([ollama.com/download](https://ollama.com/download)). "
-            "⚠️ Não funciona quando o app está publicado no Streamlit "
-            "Community Cloud -- o servidor deles não tem acesso a um "
-            "servidor Ollama. Use esta opção só ao rodar o app na sua "
-            "própria máquina."
-        )
-    else:
-        st.caption("Requer a variável de ambiente ANTHROPIC_API_KEY configurada.")
-
-    st.markdown("---")
-    st.caption(
-        "Fonte: Lei nº 12.651/2012 (texto compilado, Casa Civil). "
-        "91 artigos, grafo de remissões internas e externas."
-    )
-
-# ---------------------------------------------------------------------------
 # Corpo principal
 # ---------------------------------------------------------------------------
 
-st.title("🌾 Entenda o Código Florestal")
+st.title("🌾 Debulhe o Código Florestal")
 st.markdown(
     "Pergunte sobre sua propriedade. Receba a resposta em português simples, "
     "com a lei certinha citada para quem quiser confirmar."
@@ -230,16 +193,16 @@ with col1:
 
 if perguntar and pergunta.strip():
     try:
-        llm = obter_llm(backend, modelo_ollama)
+        llm = obter_llm()
     except ModuleNotFoundError as e:
         st.error(
-            f"Biblioteca não instalada para o backend selecionado: {e}. "
+            f"Biblioteca não instalada: {e}. "
             "Veja o cabeçalho deste arquivo para a lista de dependências.",
             icon="⚠️",
         )
         st.stop()
 
-    with st.spinner(f"Consultando o Código Florestal (via {backend})..."):
+    with st.spinner("Consultando o Código Florestal..."):
         try:
             resposta, docs = gerar_resposta(pergunta, collection, modelo_embedding, llm)
         except Exception as e:

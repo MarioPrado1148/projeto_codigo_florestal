@@ -6,6 +6,5 @@ torch
 langchain
 langchain-core
 langchain-anthropic
-langchain-ollama
 beautifulsoup4
 requests
